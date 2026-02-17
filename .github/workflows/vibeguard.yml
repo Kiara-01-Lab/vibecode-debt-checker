@@ -1,0 +1,37 @@
+name: vibeguard
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vibeguard-check:
+    name: Security & Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Option A: use via GitHub Marketplace (recommended for external repos) ──
+      # - name: Run vibeguard
+      #   uses: your-org/vibeguard@v1
+
+      # ── Option B: run directly from this repo (used by the starter template) ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: vibeguard — secrets, security & quality
+        run: npx tsx src/utils/check.ts
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit

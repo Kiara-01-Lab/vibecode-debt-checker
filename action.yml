@@ -1,0 +1,61 @@
+name: vibeguard
+description: Security and quality checks for AI-generated code. Catches hardcoded secrets, injection risks, missing middleware, and common AI debt patterns.
+author: vibeguard
+
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  working-directory:
+    description: Directory to scan (defaults to repo root)
+    required: false
+    default: ${{ github.workspace }}
+  fail-on-warnings:
+    description: Exit with code 1 on warnings as well as errors
+    required: false
+    default: "false"
+
+outputs:
+  error-count:
+    description: Number of errors found
+    value: ${{ steps.run-check.outputs.error-count }}
+  warning-count:
+    description: Number of warnings found
+    value: ${{ steps.run-check.outputs.warning-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install vibeguard dependencies
+      shell: bash
+      run: npm ci
+      working-directory: ${{ github.action_path }}
+
+    - name: Run vibeguard checks
+      id: run-check
+      shell: bash
+      run: |
+        set +e
+        OUTPUT=$(npx tsx ${{ github.action_path }}/src/utils/check.ts ${{ inputs.working-directory }} 2>&1)
+        EXIT_CODE=$?
+        echo "$OUTPUT"
+
+        # Parse counts from summary line
+        ERRORS=$(echo "$OUTPUT"   | grep -oP '\d+(?= error)'   | tail -1 || echo "0")
+        WARNINGS=$(echo "$OUTPUT" | grep -oP '\d+(?= warning)' | tail -1 || echo "0")
+
+        echo "error-count=${ERRORS}"   >> $GITHUB_OUTPUT
+        echo "warning-count=${WARNINGS}" >> $GITHUB_OUTPUT
+
+        # Fail on warnings too if requested
+        if [ "${{ inputs.fail-on-warnings }}" = "true" ] && [ "${WARNINGS}" -gt 0 ]; then
+          exit 1
+        fi
+
+        exit $EXIT_CODE
