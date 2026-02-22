@@ -1,11 +1,9 @@
-# vibeguard-starter
+# vibe debt checker
 
-**Ship AI-generated code without the hidden risks.**
-AIで生成したコードを、隠れたリスクなしで本番運用できるスターターキット。
-
+**Autoscanner for technical debt - Ship AI-generated code without the hidden technical debt risks.**
 ---
 
-## What This Does / これが解決する問題
+## What This Does
 
 AI tools generate code that *works* but has invisible problems: leaked API keys, no error handling, no logging, unvalidated inputs. You won't notice until production breaks.
 
@@ -18,7 +16,7 @@ This starter template has all four guardrails pre-wired. Clone it, start buildin
 | **Input Validation** | Malicious/malformed input | SQL injection, XSS, crashes |
 | **Structured Logging** | Every request + every error | Black box in production |
 
-## Quick Start / クイックスタート
+## Quick Start 
 
 ```bash
 # Clone
