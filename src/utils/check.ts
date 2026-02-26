@@ -489,9 +489,17 @@ const YELLOW = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const GREEN = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const DIM   = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
+const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
+
 function section(title: string, count: number) {
   const bar = "─".repeat(Math.max(0, 52 - title.length - String(count).length));
   console.log(`\n${BOLD(`── ${title} (${count})`)} ${DIM(bar)}`);
+}
+
+function githubAnnotation(severity: Severity, file: string, line: number, message: string) {
+  if (!isGitHubActions) return;
+  const cmd = severity === "error" ? "error" : "warning";
+  console.log(`::${cmd} file=${file},line=${line}::${message}`);
 }
 
 function printFinding(f: Finding) {
@@ -499,12 +507,21 @@ function printFinding(f: Finding) {
   console.log(`  ${icon} ${BOLD(f.file)}:${f.line}  ${DIM(f.name)}`);
   console.log(`     Preview : ${f.preview}`);
   console.log(`     Fix     : ${f.fix}\n`);
+
+  // GitHub Actions annotation
+  githubAnnotation(f.severity, f.file, f.line, `${f.name} — ${f.fix}`);
 }
 
 function printIssue(w: StructuralIssue) {
   const icon = w.severity === "error" ? RED("🚨") : YELLOW("⚠️ ");
   console.log(`  ${icon} ${w.message}`);
   console.log(`     Fix : ${w.fix}\n`);
+
+  // GitHub Actions annotation (no file/line for structural issues)
+  if (isGitHubActions) {
+    const cmd = w.severity === "error" ? "error" : "warning";
+    console.log(`::${cmd}::${w.message} — ${w.fix}`);
+  }
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -580,7 +597,120 @@ function main() {
   const warnStr = warnCount  > 0 ? YELLOW(`${warnCount} warning(s)`) : `${warnCount} warning(s)`;
   console.log(`  ${errStr}   ${warnStr}\n`);
 
+  // ── GitHub Job Summary ─────────────────────────────────────────
+  if (isGitHubActions && process.env.GITHUB_STEP_SUMMARY) {
+    writeJobSummary(
+      allFindings,
+      structuralIssues,
+      errorCount,
+      warnCount,
+      secrets,
+      security,
+      quality
+    );
+  }
+
   process.exit(errorCount > 0 ? 1 : 0);
+}
+
+function writeJobSummary(
+  allFindings: Finding[],
+  structuralIssues: StructuralIssue[],
+  errorCount: number,
+  warnCount: number,
+  secrets: Finding[],
+  security: Finding[],
+  quality: Finding[]
+) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY!;
+
+  let md = `## 🔍 vibeguard — Security & Quality Check\n\n`;
+
+  // Status badge
+  if (errorCount === 0 && warnCount === 0) {
+    md += `### ✅ No issues found\n\n`;
+  } else {
+    md += `### ${errorCount > 0 ? '❌' : '⚠️'} Found ${errorCount} error(s) and ${warnCount} warning(s)\n\n`;
+
+    // Summary table
+    md += `| Category | Errors | Warnings |\n`;
+    md += `|----------|--------|----------|\n`;
+
+    const secretErrors = secrets.filter(f => f.severity === "error").length;
+    const secretWarnings = secrets.filter(f => f.severity === "warning").length;
+    const securityErrors = security.filter(f => f.severity === "error").length;
+    const securityWarnings = security.filter(f => f.severity === "warning").length;
+    const qualityErrors = quality.filter(f => f.severity === "error").length;
+    const qualityWarnings = quality.filter(f => f.severity === "warning").length;
+    const structuralErrors = structuralIssues.filter(i => i.severity === "error").length;
+    const structuralWarnings = structuralIssues.filter(i => i.severity === "warning").length;
+
+    if (secrets.length > 0) {
+      md += `| 🔐 Secrets | ${secretErrors} | ${secretWarnings} |\n`;
+    }
+    if (security.length > 0) {
+      md += `| 🛡️ Security | ${securityErrors} | ${securityWarnings} |\n`;
+    }
+    if (quality.length > 0) {
+      md += `| 📝 Code Quality | ${qualityErrors} | ${qualityWarnings} |\n`;
+    }
+    if (structuralIssues.length > 0) {
+      md += `| ⚙️ Structure & Config | ${structuralErrors} | ${structuralWarnings} |\n`;
+    }
+
+    md += `\n`;
+
+    // Detailed findings in collapsible sections
+    if (secrets.length > 0) {
+      md += `<details>\n<summary><strong>🔐 Secrets (${secrets.length})</strong></summary>\n\n`;
+      secrets.slice(0, 10).forEach(f => {
+        md += `- **${f.file}:${f.line}** — ${f.name}\n`;
+        md += `  - Fix: ${f.fix}\n`;
+      });
+      if (secrets.length > 10) {
+        md += `\n_...and ${secrets.length - 10} more_\n`;
+      }
+      md += `\n</details>\n\n`;
+    }
+
+    if (security.length > 0) {
+      md += `<details>\n<summary><strong>🛡️ Security (${security.length})</strong></summary>\n\n`;
+      security.slice(0, 10).forEach(f => {
+        md += `- **${f.file}:${f.line}** — ${f.name}\n`;
+        md += `  - Fix: ${f.fix}\n`;
+      });
+      if (security.length > 10) {
+        md += `\n_...and ${security.length - 10} more_\n`;
+      }
+      md += `\n</details>\n\n`;
+    }
+
+    if (quality.length > 0) {
+      md += `<details>\n<summary><strong>📝 Code Quality (${quality.length})</strong></summary>\n\n`;
+      quality.slice(0, 10).forEach(f => {
+        md += `- **${f.file}:${f.line}** — ${f.name}\n`;
+        md += `  - Fix: ${f.fix}\n`;
+      });
+      if (quality.length > 10) {
+        md += `\n_...and ${quality.length - 10} more_\n`;
+      }
+      md += `\n</details>\n\n`;
+    }
+
+    if (structuralIssues.length > 0) {
+      md += `<details>\n<summary><strong>⚙️ Structure & Config (${structuralIssues.length})</strong></summary>\n\n`;
+      structuralIssues.forEach(i => {
+        md += `- ${i.message}\n`;
+        md += `  - Fix: ${i.fix}\n`;
+      });
+      md += `\n</details>\n\n`;
+    }
+  }
+
+  md += `---\n\n`;
+  md += `🛡️ _Powered by [vibeguard](https://github.com/Kiara-01-Lab/vibecode-debt-checker)_\n`;
+
+  fs.appendFileSync(summaryPath, md);
 }
 
 main();
